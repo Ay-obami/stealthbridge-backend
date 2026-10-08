@@ -29,6 +29,18 @@ The repository contains `api/axum.rs` and `vercel.json`, adapting the **same Axu
 
 - No permanent background ledger observer runs inside Vercel Functions; run it on a separate supervised persistent worker.
 - With no `DATABASE_URL`, network and capability reads remain available, but corridors/observer return explicit 503 and `/ready` remains degraded. Migrations are never applied at startup.
+- A configured `DATABASE_URL` is connected lazily so an unavailable database does not prevent process startup; `/health` remains liveness and `/ready` reports `database=unavailable`.
+- Set `STEALTHBRIDGE_METRICS_TOKEN` only for an internal monitoring deployment. `/internal/metrics` returns 404 when unset and requires `Authorization: Bearer <token>` when enabled. Keep the route behind a private network or authenticated gateway as well.
+
+### Readiness and monitoring probes
+
+```sh
+curl -i "$API_URL/health"
+curl -i "$API_URL/ready"
+curl -fsS -H "Authorization: Bearer $STEALTHBRIDGE_METRICS_TOKEN" "$API_URL/internal/metrics"
+```
+
+Alert when `/ready` stays degraded, the observed ledger age exceeds 180 seconds, the RPC probe error ratio rises above the service's normal baseline, or PostgreSQL is configured but unavailable. During an outage, keep the process live for diagnostics, stop treating observer checkpoints as current payment evidence, and leave all payment execution disabled. Never attach wallet, transaction, tenant or customer identifiers as metric labels.
 - `GET /v1/contracts` exposes the canonical undeployed Testnet manifest snapshot and **always reports on-chain verification false**. It returns 503 if someone incorrectly inserts an unverified deployment record.
 - If the Vercel build or runtime cannot support the deployed Rust dependencies, inspect actual logs and do not claim functionality from a build alone.
 

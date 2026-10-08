@@ -1,11 +1,13 @@
 use axum::{
-    extract::{Path, Query, State}, http::StatusCode, routing::{get, post}, Json, Router,
+    body::{to_bytes,Body},
+    extract::{Path, Query, State}, http::{header,HeaderValue,Request,StatusCode},
+    middleware::{from_fn,Next}, response::Response, routing::{get, post}, Json, Router,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
-use std::{env, error::Error, sync::Arc, time::{Duration,SystemTime,UNIX_EPOCH}};
+use std::{env, error::Error, sync::{atomic::{AtomicBool,AtomicU64,Ordering},Arc}, time::{Duration,Instant,SystemTime,UNIX_EPOCH}};
 use tokio::sync::Semaphore;
 use tracing::warn;
 use uuid::Uuid;
@@ -23,6 +25,24 @@ pub struct AppState {
     rpc_url: String,
     db: Option<PgPool>,
     rpc_permits: Arc<Semaphore>,
+    metrics_token:Option<String>,
+    metrics:Arc<ReadinessMetrics>,
+}
+
+struct ReadinessMetrics {
+    rpc_probes_total:AtomicU64,
+    rpc_probe_errors_total:AtomicU64,
+    rpc_probe_latency_ms_sum:AtomicU64,
+    ledger_age_seconds:AtomicU64,
+    database_configured:AtomicBool,
+    database_available:AtomicBool,
+}
+impl Default for ReadinessMetrics {
+    fn default()->Self {
+        Self {rpc_probes_total:AtomicU64::new(0),rpc_probe_errors_total:AtomicU64::new(0),
+            rpc_probe_latency_ms_sum:AtomicU64::new(0),ledger_age_seconds:AtomicU64::new(u64::MAX),
+            database_configured:AtomicBool::new(false),database_available:AtomicBool::new(false)}
+    }
 }
 
 impl AppState {
@@ -38,11 +58,15 @@ impl AppState {
         let db = match env::var("DATABASE_URL") {
             Ok(database_url) if !database_url.is_empty() => {
                 // Do not automatically apply migrations in the application process.
-                Some(PgPoolOptions::new().max_connections(10).connect(&database_url).await?)
+                // Keep liveness independent from database reachability; /ready
+                // reports failed connections with a bounded query timeout.
+                Some(PgPoolOptions::new().max_connections(10).connect_lazy(&database_url)?)
             }
             _ => None,
         };
-        Ok(Self {http, rpc_url, db, rpc_permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT_RPC))})
+        let metrics_token=env::var("STEALTHBRIDGE_METRICS_TOKEN").ok().filter(|value|!value.is_empty());
+        Ok(Self {http,rpc_url,db,rpc_permits:Arc::new(Semaphore::new(MAX_IN_FLIGHT_RPC)),
+            metrics_token,metrics:Arc::new(ReadinessMetrics::default())})
     }
 
     #[cfg(test)]
@@ -52,6 +76,8 @@ impl AppState {
             rpc_url: "https://soroban-testnet.stellar.org".to_owned(),
             db: None,
             rpc_permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT_RPC)),
+            metrics_token:None,
+            metrics:Arc::new(ReadinessMetrics::default()),
         }
     }
 
@@ -350,12 +376,23 @@ struct Readiness {
     database: &'static str,
     payments: &'static str,
 }
+fn readiness_projection(chain:bool,db_configured:bool,db_available:bool)->Readiness{
+    let database=if !db_configured{"not-configured"}else if db_available{"connected"}else{"unavailable"};
+    let ready=chain&&database=="connected";
+    Readiness{status:if ready{"ready"}else{"degraded"},
+        stellar_rpc:if chain{"connected"}else{"unavailable"},database,payments:"disabled"}
+}
 /// Non-custodial readiness observation: healthy process != usable payment rail.
 async fn readiness(State(state):State<Arc<AppState>>)
     ->(StatusCode,Json<Readiness>){
     // Parallel bounded checks reduce the load balancer's worst-case wait.
-    let (chain_result, db_result) = tokio::join!(
-        state.network(),
+    let rpc_probe=async {
+        let started=Instant::now();
+        let result=state.network().await;
+        (result,started.elapsed())
+    };
+    let ((chain_result,rpc_latency), db_result) = tokio::join!(
+        rpc_probe,
         async {
             match &state.db {
                 Some(pool) => tokio::time::timeout(
@@ -369,21 +406,89 @@ async fn readiness(State(state):State<Arc<AppState>>)
     let now = SystemTime::now().duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs()).unwrap_or(0);
     // A responsive RPC with an old ledger is not a healthy observer.
+    let ledger_age=chain_result.as_ref().ok().and_then(|head|head.ledger_closed_at_unix.parse::<u64>().ok())
+        .filter(|closed_at|*closed_at<=now.saturating_add(30)).map(|closed_at|now.saturating_sub(closed_at));
     let chain = chain_result.is_ok_and(|head| ledger_is_fresh(&head.ledger_closed_at_unix, now, 180));
-    let db = db_result;
-    let code=if chain && db{StatusCode::OK}else{StatusCode::SERVICE_UNAVAILABLE};
-    (code,Json(Readiness{
-       status:if chain && db{"ready"}else{"degraded"},
-       stellar_rpc:if chain{"connected"}else{"unavailable"},
-       database:if db{"connected"}else{"unavailable"},
-       payments:"disabled",
-    }))
+    let db_configured=state.db.is_some();
+    state.metrics.rpc_probes_total.fetch_add(1,Ordering::Relaxed);
+    if !chain {state.metrics.rpc_probe_errors_total.fetch_add(1,Ordering::Relaxed);}
+    state.metrics.rpc_probe_latency_ms_sum.fetch_add(rpc_latency.as_millis().min(u64::MAX as u128) as u64,Ordering::Relaxed);
+    state.metrics.ledger_age_seconds.store(ledger_age.unwrap_or(u64::MAX),Ordering::Relaxed);
+    state.metrics.database_configured.store(db_configured,Ordering::Relaxed);
+    state.metrics.database_available.store(db_result,Ordering::Relaxed);
+    let result=readiness_projection(chain,db_configured,db_result);
+    let status=if result.status=="ready"{StatusCode::OK}else{StatusCode::SERVICE_UNAVAILABLE};
+    (status,Json(result))
+}
+
+fn safe_error(status:StatusCode)->(&'static str,&'static str){
+    match status{
+        StatusCode::BAD_REQUEST=>("INVALID_REQUEST","The request parameters are invalid."),
+        StatusCode::UNAUTHORIZED|StatusCode::FORBIDDEN=>("UNAUTHORIZED","The request is not authorized."),
+        StatusCode::NOT_FOUND=>("NOT_FOUND","The requested resource was not found."),
+        StatusCode::TOO_MANY_REQUESTS=>("RATE_LIMITED","Too many requests. Retry after a short delay."),
+        StatusCode::BAD_GATEWAY=>("UPSTREAM_UNAVAILABLE","The upstream service returned an invalid or unavailable response."),
+        StatusCode::SERVICE_UNAVAILABLE=>("DEPENDENCY_UNAVAILABLE","A required service is unavailable or not configured."),
+        StatusCode::NOT_IMPLEMENTED=>("FEATURE_DISABLED","This operation is not enabled. No transaction was submitted."),
+        _=>("REQUEST_FAILED","The request could not be completed."),
+    }
+}
+#[derive(Serialize)]
+struct ErrorDetails {code:&'static str,message:&'static str}
+#[derive(Serialize)]
+struct ErrorEnvelope {error:ErrorDetails,trace_id:String,#[serde(skip_serializing_if="Option::is_none")]details:Option<Value>}
+
+async fn diagnostic_responses(request:Request<Body>,next:Next)->Response{
+    let path=request.uri().path().to_owned();
+    let response=next.run(request).await;
+    let trace_id=Uuid::new_v4().to_string();
+    let status=response.status();
+    let (mut parts,body)=response.into_parts();
+    let response=if status.is_client_error()||status.is_server_error(){
+        let details=if path=="/ready"&&status==StatusCode::SERVICE_UNAVAILABLE{
+            to_bytes(body,64*1024).await.ok().and_then(|bytes|serde_json::from_slice(&bytes).ok())
+        }else{None};
+        let (code,message)=safe_error(status);
+        let envelope=ErrorEnvelope{error:ErrorDetails{code,message},trace_id:trace_id.clone(),details};
+        let payload=serde_json::to_vec(&envelope).unwrap_or_else(|_|b"{}".to_vec());
+        parts.headers.remove(header::CONTENT_LENGTH);
+        parts.headers.remove(header::CONTENT_ENCODING);
+        parts.headers.insert(header::CONTENT_TYPE,HeaderValue::from_static("application/json"));
+        parts.headers.insert("x-error-code",HeaderValue::from_static(code));
+        warn!(trace_id=%trace_id,status=status.as_u16(),"Public API request failed");
+        Response::from_parts(parts,Body::from(payload))
+    }else{Response::from_parts(parts,body)};
+    let mut response=response;
+    response.headers_mut().insert("x-request-id",HeaderValue::from_str(&trace_id).expect("UUID is a valid header value"));
+    response
+}
+
+fn token_matches(expected:&str,provided:&str)->bool{
+    if expected.len()!=provided.len(){return false;}
+    expected.bytes().zip(provided.bytes()).fold(0u8,|difference,(left,right)|difference|(left^right))==0
+}
+async fn internal_metrics(State(state):State<Arc<AppState>>,headers:axum::http::HeaderMap)
+    ->Result<(StatusCode,[(header::HeaderName,HeaderValue);1],String),StatusCode>{
+    let token=state.metrics_token.as_deref().ok_or(StatusCode::NOT_FOUND)?;
+    let supplied=headers.get(header::AUTHORIZATION).and_then(|value|value.to_str().ok())
+        .and_then(|value|value.strip_prefix("Bearer ")).ok_or(StatusCode::UNAUTHORIZED)?;
+    if !token_matches(token,supplied){return Err(StatusCode::UNAUTHORIZED);}
+    let metrics=&state.metrics;
+    let age=metrics.ledger_age_seconds.load(Ordering::Relaxed);
+    let age_line=if age==u64::MAX{String::new()}else{format!("stealthbridge_observed_ledger_age_seconds {age}\n")};
+    let db_configured=u8::from(metrics.database_configured.load(Ordering::Relaxed));
+    let db_available=u8::from(metrics.database_available.load(Ordering::Relaxed));
+    let body=format!("# HELP stealthbridge_readiness_rpc_probes_total Readiness RPC probes.\n# TYPE stealthbridge_readiness_rpc_probes_total counter\nstealthbridge_readiness_rpc_probes_total {}\n# HELP stealthbridge_readiness_rpc_probe_errors_total Failed readiness RPC probes.\n# TYPE stealthbridge_readiness_rpc_probe_errors_total counter\nstealthbridge_readiness_rpc_probe_errors_total {}\n# HELP stealthbridge_readiness_rpc_probe_latency_ms_sum Cumulative readiness RPC probe latency in milliseconds.\n# TYPE stealthbridge_readiness_rpc_probe_latency_ms_sum counter\nstealthbridge_readiness_rpc_probe_latency_ms_sum {}\n# HELP stealthbridge_database_configured Whether PostgreSQL is configured.\n# TYPE stealthbridge_database_configured gauge\nstealthbridge_database_configured {db_configured}\n# HELP stealthbridge_database_available Whether configured PostgreSQL is reachable.\n# TYPE stealthbridge_database_available gauge\nstealthbridge_database_available {db_available}\n# HELP stealthbridge_observed_ledger_age_seconds Age of the latest verified Testnet ledger head.\n# TYPE stealthbridge_observed_ledger_age_seconds gauge\n{age_line}# HELP stealthbridge_journal_transitions_total Public journal transitions; no public transition API is enabled.\n# TYPE stealthbridge_journal_transitions_total counter\nstealthbridge_journal_transitions_total 0\n",
+        metrics.rpc_probes_total.load(Ordering::Relaxed),metrics.rpc_probe_errors_total.load(Ordering::Relaxed),
+        metrics.rpc_probe_latency_ms_sum.load(Ordering::Relaxed));
+    Ok((StatusCode::OK,[(header::CONTENT_TYPE,HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"))],body))
 }
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health",get(health))
         .route("/ready",get(readiness))
+        .route("/internal/metrics",get(internal_metrics))
         .route("/v1/network",get(network))
         .route("/v1/observer",get(observer_head))
         .route("/v1/capabilities",get(capabilities))
@@ -393,12 +498,36 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/corridors/{id}",get(corridor_by_id))
         .route("/v1/transactions/{hash}",get(public_transaction))
         .route("/v1/settlements",post(disabled))
+        .layer(from_fn(diagnostic_responses))
         .with_state(Arc::new(state))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn readiness_distinguishes_missing_and_unavailable_database_states(){
+        let missing=readiness_projection(true,false,false);
+        assert_eq!(missing.status,"degraded");
+        assert_eq!(missing.database,"not-configured");
+        assert_eq!(missing.payments,"disabled");
+        let unavailable=readiness_projection(true,true,false);
+        assert_eq!(unavailable.database,"unavailable");
+        assert_eq!(unavailable.status,"degraded");
+        let rpc_down=readiness_projection(false,true,true);
+        assert_eq!(rpc_down.stellar_rpc,"unavailable");
+        assert_eq!(rpc_down.status,"degraded");
+        assert_eq!(readiness_projection(true,true,true).status,"ready");
+    }
+    #[test]
+    fn public_error_codes_and_metrics_auth_are_stable(){
+        assert_eq!(safe_error(StatusCode::TOO_MANY_REQUESTS).0,"RATE_LIMITED");
+        assert_eq!(safe_error(StatusCode::BAD_GATEWAY).0,"UPSTREAM_UNAVAILABLE");
+        assert_eq!(safe_error(StatusCode::SERVICE_UNAVAILABLE).0,"DEPENDENCY_UNAVAILABLE");
+        assert!(token_matches("internal-secret","internal-secret"));
+        assert!(!token_matches("internal-secret","internal-secret-extra"));
+        assert!(!token_matches("internal-secret","public"));
+    }
     #[tokio::test]
     async fn contract_discovery_reflects_actual_undeployed_canonical_manifest() {
         let response=contract_discovery().await.expect("synchronized Testnet manifest");
