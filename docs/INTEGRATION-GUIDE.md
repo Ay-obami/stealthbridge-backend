@@ -93,3 +93,7 @@ Operate **one designated observer per environment**; multiple replicas can safel
 The readiness probe verifies not just a valid Testnet RPC network passphrase and database but a ledger **closed within 180 seconds of the current server clock**. An old ledger, invalid timestamp, or timestamp more than 30 seconds ahead of the server clock makes \`GET /ready\` report degraded (503), even if \`getNetwork\` and \`getLatestLedger\` return HTTP success. \`GET /v1/network\` still reports actual metadata without changing or fabricating it.
 
 Keep host clocks synchronized; slow networks can require explicit operator investigation. A fresh ledger is only an infrastructure-readiness condition and **does not enable payments**.
+
+## Signed callback inbox (future provider integration)
+
+The internal HMAC verifier and tenant-scoped PostgreSQL inbox now reject unauthenticated, stale, duplicated and conflicting callback inputs. These remain separate from public APIs and money movements. See [provider callback verification](PROVIDER-CALLBACK-SECURITY.md).
