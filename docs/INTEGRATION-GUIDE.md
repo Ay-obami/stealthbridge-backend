@@ -97,3 +97,7 @@ Keep host clocks synchronized; slow networks can require explicit operator inves
 ## Signed callback inbox (future provider integration)
 
 The internal HMAC verifier and tenant-scoped PostgreSQL inbox now reject unauthenticated, stale, duplicated and conflicting callback inputs. These remain separate from public APIs and money movements. See [provider callback verification](PROVIDER-CALLBACK-SECURITY.md).
+
+## Real HTTP contract integration regression
+
+`tests/contracts_http_integration.rs` now starts the actual Axum router on an ephemeral local port. It verifies `GET /v1/contracts` exposes the canonical empty Testnet deployment manifest and source-level read-method inventory; `POST /v1/settlements` stays HTTP 501; and payment/privacy capability flags remain false. No Stellar RPC calls, real payment data, private witnesses or on-chain deployments are part of this test.
