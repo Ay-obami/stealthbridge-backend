@@ -2,7 +2,7 @@ use axum::{
     extract::State, http::StatusCode, routing::{get, post}, Json, Router,
 };
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
 use std::{env, error::Error, sync::Arc, time::Duration};
