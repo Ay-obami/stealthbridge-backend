@@ -1,12 +1,26 @@
 name: Rust API checks
-on:
-  push:
-  pull_request:
+on: [push, pull_request]
 permissions:
   contents: read
 jobs:
   rust:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stealthbridge_ci
+          POSTGRES_PASSWORD: test_only
+          POSTGRES_DB: stealthbridge_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stealthbridge_ci -d stealthbridge_ci"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgres://stealthbridge_ci:test_only@localhost:5432/stealthbridge_ci
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
