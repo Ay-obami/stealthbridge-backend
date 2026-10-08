@@ -1,8 +1,8 @@
 use axum::{
-    extract::{Path, State}, http::StatusCode, routing::{get, post}, Json, Router,
+    extract::{Path, Query, State}, http::StatusCode, routing::{get, post}, Json, Router,
 };
 use reqwest::Client;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
 use std::{env, error::Error, sync::Arc, time::Duration};
@@ -174,6 +174,37 @@ async fn corridors(State(state): State<Arc<AppState>>) -> Result<Json<Vec<Corrid
     Ok(Json(rows))
 }
 
+#[derive(Deserialize)]
+struct CorridorPageParams {
+    after: Option<Uuid>,
+    limit: Option<u32>,
+}
+#[derive(Serialize)]
+struct CorridorPage {
+    items: Vec<Corridor>,
+    next_cursor: Option<Uuid>,
+}
+/// Keyset pagination by immutable corridor UUID. Never synthesize data or
+/// paginate over unbounded client-provided counts.
+async fn corridor_page(
+    State(state): State<Arc<AppState>>, Query(params): Query<CorridorPageParams>,
+) -> Result<Json<CorridorPage>, StatusCode> {
+    let limit = params.limit.unwrap_or(25);
+    if !(1..=100).contains(&limit) { return Err(StatusCode::BAD_REQUEST); }
+    let pool = state.db.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut rows = sqlx::query_as::<_, Corridor>(
+        "SELECT id, origin_country, destination_country, asset_code, asset_issuer, privacy_rail \
+         FROM corridors WHERE enabled = TRUE AND ($1::uuid IS NULL OR id > $1) \
+         ORDER BY id LIMIT $2"
+    )
+    .bind(params.after).bind(i64::from(limit) + 1)
+    .fetch_all(pool).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let has_more = rows.len() > limit as usize;
+    rows.truncate(limit as usize);
+    let next_cursor = if has_more {rows.last().map(|row| row.id)} else {None};
+    Ok(Json(CorridorPage{items:rows,next_cursor}))
+}
+
 /// Read exactly one operator-configured, enabled corridor. Never invent entries.
 async fn corridor_by_id(
     Path(id):Path<String>,State(state):State<Arc<AppState>>
@@ -259,6 +290,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/network",get(network))
         .route("/v1/capabilities",get(capabilities))
         .route("/v1/corridors",get(corridors))
+        .route("/v1/corridors/page",get(corridor_page))
         .route("/v1/corridors/{id}",get(corridor_by_id))
         .route("/v1/transactions/{hash}",get(public_transaction))
         .route("/v1/settlements",post(disabled))

@@ -69,3 +69,9 @@ First verify API/SDK schema agreement and remote endpoint data, then authenticat
 The read-only Stellar upstream client has an 8-second HTTP timeout, **16 simultaneous RPC request permits**, and a **2 MiB maximum streamed response**. Responses are not deserialized until their bounded content is collected. Unexpected JSON-RPC versions, mismatched response IDs, error objects, null results and untrusted ledger hashes fail closed as upstream errors. Correctness tests cover malformed response envelopes.
 
 The configured RPC URL must be HTTPS without embedded credentials, fragment or query string. Readiness probes execute network and database checks concurrently, with a two-second DB timeout. These are service-capacity safeguards, **not per-user/IP rate limits**; public deployment still needs an ingress limiter, trusted proxy policy and monitoring.
+
+## Bounded corridor keyset discovery
+
+\`GET /v1/corridors/page?limit=25&after=<UUID>\` returns \`{items, next_cursor}\` from **real enabled operator records** in PostgreSQL. Limits range 1–100, default 25; malformed UUID or out-of-range count returns 400. The query fetches one extra row to determine whether a cursor should be returned, so the service never reads the full table to produce a page. Stable UUID ordering avoids OFFSET scans at larger tables. A missing database returns 503, an empty configured database gives an empty page with null cursor, and no partner/FX details are synthesized.
+
+Page boundaries are not a long-running database snapshot: concurrent operator enable/disable changes can affect later pages. Cursors must be treated as opaque pagination tokens; a future authenticated and signed cursor scheme will be needed if customer-specific filters appear. \`/v1/corridors\` is retained for backwards compatibility with existing read-only clients; new integrations should use the bounded endpoint.

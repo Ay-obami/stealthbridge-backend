@@ -48,3 +48,9 @@ See [service readiness and exact asset value notes](docs/ENGINEERING-FOUNDATIONS
 ## Detailed integration guide
 
 [Deployment and API integration reference](docs/INTEGRATION-GUIDE.md) documents every read-only route, failure status, database boundary and release precondition.
+
+## Bounded corridor keyset discovery
+
+\`GET /v1/corridors/page?limit=25&after=<UUID>\` returns \`{items, next_cursor}\` from **real enabled operator records** in PostgreSQL. Limits range 1–100, default 25; malformed UUID or out-of-range count returns 400. The query fetches one extra row to determine whether a cursor should be returned, so the service never reads the full table to produce a page. Stable UUID ordering avoids OFFSET scans at larger tables. A missing database returns 503, an empty configured database gives an empty page with null cursor, and no partner/FX details are synthesized.
+
+Page boundaries are not a long-running database snapshot: concurrent operator enable/disable changes can affect later pages. Cursors must be treated as opaque pagination tokens; a future authenticated and signed cursor scheme will be needed if customer-specific filters appear. \`/v1/corridors\` is retained for backwards compatibility with existing read-only clients; new integrations should use the bounded endpoint.

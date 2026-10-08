@@ -56,6 +56,27 @@ paths:
                 type: array
                 items: {$ref: "#/components/schemas/Corridor"}
         "503": {description: Database not configured or temporarily unavailable}
+  /v1/corridors/page:
+    get:
+      operationId: corridorPage
+      summary: Read stable keyset pages of enabled, operator-configured corridors
+      parameters:
+        - name: after
+          in: query
+          description: Previous next_cursor UUID; omit on first page
+          schema: {type: string, format: uuid}
+        - name: limit
+          in: query
+          description: Items per page, default 25, maximum 100
+          schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+      responses:
+        "200":
+          description: Page from current configured database state; no FX or payout claims
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CorridorPage"}
+        "400": {description: Invalid limit or cursor}
+        "503": {description: Database not configured or unavailable}
   /v1/corridors/{id}:
     get:
       operationId: corridorById
@@ -130,6 +151,15 @@ components:
         asset_code: {type: string}
         asset_issuer: {type: [string, "null"]}
         privacy_rail: {type: string, enum: [confidential-token, private-payments]}
+    CorridorPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/Corridor"}
+        next_cursor: {type: [string, "null"], format: uuid}
     TransactionObservation:
       type: object
       required: [hash, status, ledger, closed_at_unix, latest_ledger, source]
