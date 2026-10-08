@@ -1,34 +1,86 @@
 openapi: 3.1.0
 info:
   title: StealthBridge Testnet API
-  version: 0.1.0
+  version: 0.2.0
   description: >
-    Experimental, read-only API contract. Settlement initiation deliberately returns 501
-    until cryptographic integration, custody and compliance reviews are complete.
-servers:
-  - url: http://localhost:8080
+    Live Stellar RPC observation and operator-configured corridor discovery.
+    No hardcoded rate/quote/transaction records. Confidential payment submission
+    remains disabled until protocol verification and operational controls exist.
 paths:
   /health:
     get:
-      summary: Service health
+      operationId: health
+      summary: Process liveness (not network readiness)
       responses:
-        '200':
-          description: Ready
+        "200": { description: API is responding }
+  /v1/network:
+    get:
+      operationId: network
+      summary: Verified live Stellar Testnet ledger head from configured RPC
+      responses:
+        "200":
+          description: Observed network metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NetworkStatus' }
+        "502": { description: RPC unreachable, malformed, or not Testnet }
   /v1/capabilities:
     get:
-      summary: Explicitly advertise which features are verified and enabled
+      operationId: capabilities
+      summary: Truthful capabilities; payment rails disabled until integrated
       responses:
-        '200':
-          description: Current capability flags
+        "200":
+          description: Capability flags
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Capabilities' }
   /v1/corridors:
     get:
-      summary: List configured demo corridors
+      operationId: corridors
+      summary: Read configured enabled corridor entries, never fabricated entries
       responses:
-        '200':
-          description: Demo corridors only
+        "200":
+          description: Enabled corridors, possibly empty
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Corridor' }
+        "503": { description: Database not configured or unavailable }
   /v1/settlements:
     post:
-      summary: Initiate settlement (disabled in Sprint 0)
+      operationId: disabledSettlement
+      summary: Reserved write endpoint (cannot transfer funds)
       responses:
-        '501':
-          description: Not implemented
+        "501": { description: Confidential settlement not yet available }
+components:
+  schemas:
+    Capabilities:
+      type: object
+      required: [payments_enabled, confidential_token_verified, private_payments_verified, fiat_payouts_enabled]
+      properties:
+        payments_enabled: {type: boolean}
+        confidential_token_verified: {type: boolean}
+        private_payments_verified: {type: boolean}
+        fiat_payouts_enabled: {type: boolean}
+    NetworkStatus:
+      type: object
+      required: [network, passphrase, protocol_version, ledger_sequence, ledger_closed_at_unix, ledger_hash, source]
+      properties:
+        network: {type: string, const: testnet}
+        passphrase: {type: string}
+        protocol_version: {type: integer}
+        ledger_sequence: {type: integer}
+        ledger_closed_at_unix: {type: string}
+        ledger_hash: {type: string}
+        source: {type: string, const: stellar-rpc}
+    Corridor:
+      type: object
+      required: [id, origin_country, destination_country, asset_code, privacy_rail]
+      properties:
+        id: {type: string, format: uuid}
+        origin_country: {type: string}
+        destination_country: {type: string}
+        asset_code: {type: string}
+        asset_issuer: {type: [string, "null"]}
+        privacy_rail: {type: string, enum: [confidential-token, private-payments]}

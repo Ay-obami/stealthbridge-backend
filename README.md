@@ -1,42 +1,27 @@
 # StealthBridge Backend
 
-**Confidential payments. Without borders.** A Rust-first, multi-tenant corridor orchestration service for StealthBridge Business and Send.
+Real-time, **read-only** Stellar Testnet observation API plus an unseeded, operator-managed corridor catalog. Rust, Axum, PostgreSQL, Stellar RPC.
 
-> **Status:** Sprint 0 executable **read-only testnet API scaffold**, not a working payments product. No real funds, quote provider, wallet signer, relayer, or database integration is active.
+**Live data, not demo records.** `GET /v1/network` makes actual `getNetwork` and `getLatestLedger` RPC requests. `GET /v1/corridors` reads enabled corridors from PostgreSQL; if no database is configured it clearly returns 503 instead of making them up. `POST /v1/settlements` is disabled (501) until cryptographic proof and custody requirements are satisfied.
 
-## Boundaries
-| Component | Responsibility | Current |
-| --- | --- | --- |
-| API | Health, capability/route discovery, request validation | Read-only demo |
-| Settlement engine | Strict state transitions, idempotency & recovery | Pure Rust model and unit tests |
-| Ledger reconciler | Stellar finality and event ingestion | Design only |
-| Privacy adapters | Confidential Tokens / SPP | Feasibility pending |
-| FX/payout | Signed quotes, off-ramp callbacks | Design only |
-| Persistence | Tenant-scoped transactional journal | Design only |
+## Run
+Requires Rust and dependencies. No account secret or key required for RPC reads.
 
-## Run locally
-Install a supported Rust toolchain then run:
-\`\`\`sh
+```sh
 cargo test
 cargo run
-curl http://127.0.0.1:8080/health
-curl http://127.0.0.1:8080/v1/capabilities
-\`\`\`
-\`POST /v1/settlements\` intentionally responds with **501**. Binding defaults to loopback, and there is no external service or credential setup.
+curl http://127.0.0.1:8080/v1/network
+```
 
-## API and contracts
-- [OpenAPI v0.1](api/openapi.yaml)
-- [Settlement Architecture](docs/ARCHITECTURE.md)
-- [Developer Reference Register](docs/DEVELOPER-REFERENCES.md)
-- [Windmill Rust skill](.agents/skills/rust-backend/SKILL.md) — vendored upstream, adapted principles only
+For real corridor records, set a PostgreSQL `DATABASE_URL` and apply `migrations/` through your approved deployment environment. No example corridor data is inserted.
 
-## Repositories
-- [Frontend](https://github.com/stealthbridge-labs/stealthbridge-frontend)
-- [Contracts](https://github.com/stealthbridge-labs/stealthbridge-contracts)
-- [SDK](https://github.com/stealthbridge-labs/stealthbridge-sdk)
+## Architecture
+- [API specification](api/openapi.yaml)
+- [Deployment and environment](docs/DEPLOYMENT.md)
+- [Settlement state machine](src/settlement.rs)
+- [Service architecture](docs/ARCHITECTURE.md)
 
-## Documentation policy
-Never claim an integration is verified until an independent testnet transaction, privacy disclosure matrix, and reproducible evidence exist. Clear distinction between docs/proposed features, local mocked states and deployed contracts is mandatory.
+*Status:* no confidential transfers, stablecoin issuance, FX rates, wallet signing, fiat payouts or proof generation wired yet. Do not process real money. Network is restricted to Testnet passphrase.
 
-## License
-No open-source license selected yet; we must decide on licensing before Drips onboarding.
+## Other repositories
+[Frontend](https://github.com/stealthbridge-labs/stealthbridge-frontend) · [Contracts](https://github.com/stealthbridge-labs/stealthbridge-contracts) · [SDK](https://github.com/stealthbridge-labs/stealthbridge-sdk)
