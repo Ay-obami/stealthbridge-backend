@@ -19,7 +19,7 @@ impl Asset {
         if self.network!="testnet" || self.identity.is_empty() ||
            self.identity.len()>128 || !self.identity.bytes().all(|b|
              b.is_ascii_alphanumeric() || b":_-".contains(&b)) ||
-           self.decimals>38 {return Err(AmountError::InvalidAsset);}
+           self.decimals>38 || (self.identity.starts_with("classic:") && self.decimals!=7) {return Err(AmountError::InvalidAsset);}
         Ok(())
     }
 }
@@ -115,7 +115,8 @@ mod tests{
     assert_eq!(AssetAmount::from_minor_units(classic.clone(),i64::MAX as i128).unwrap().minor_units,i64::MAX as i128);
     assert_eq!(AssetAmount::from_minor_units(classic.clone(),i64::MAX as i128+1),Err(AmountError::Overflow));
     assert_eq!(AssetAmount::parse(classic.clone(),"922337203685.4775808"),Err(AmountError::Overflow));
-    assert_eq!(AssetAmount::parse(classic,"0.00000001"),Err(AmountError::PrecisionLoss));
+    assert_eq!(AssetAmount::parse(classic.clone(),"0.00000001"),Err(AmountError::PrecisionLoss));
+    assert_eq!(AssetAmount::parse(Asset { decimals: 8, ..classic },"1"),Err(AmountError::InvalidAsset));
   }
   #[test]fn prevents_cross_asset_and_overflow(){
     let a=AssetAmount::parse(asset(),"1").unwrap();
