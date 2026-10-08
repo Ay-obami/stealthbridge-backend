@@ -160,11 +160,13 @@ async fn network(State(state): State<Arc<AppState>>) -> Result<Json<NetworkStatu
 /// Immutable build-time snapshot from stealthbridge-contracts/deployments/testnet.
 /// Manifest VERIFIED does NOT equal independent on-chain verification.
 const CONTRACT_MANIFEST: &str = include_str!("../deployments/testnet/manifest.json");
+const CONTRACT_INTERFACE: &str = include_str!("../deployments/testnet/public-soroban-interface.v1.json");
 #[derive(Serialize)]
 struct ContractDiscovery {
     network: &'static str,
     source: &'static str,
     manifest: Value,
+    public_interface: Value,
     on_chain_verified: bool,
     payment_execution_enabled: bool,
 }
@@ -184,10 +186,17 @@ async fn contract_discovery() -> Result<Json<ContractDiscovery>,StatusCode> {
         // attestation workflow is implemented and reviewed.
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
+    let public_interface:Value=serde_json::from_str(CONTRACT_INTERFACE)
+        .map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
+    if public_interface.get("schemaVersion").and_then(Value::as_u64)!=Some(1)
+        || public_interface.get("network").and_then(Value::as_str)!=Some("testnet")
+        || public_interface.get("status").and_then(Value::as_str)!=Some("source-interface-only")
+    { return Err(StatusCode::SERVICE_UNAVAILABLE); }
     Ok(Json(ContractDiscovery{
         network:"testnet",
         source:"stealthbridge-contracts/deployments/testnet/manifest.json",
         manifest,
+        public_interface,
         on_chain_verified:false,
         payment_execution_enabled:false,
     }))
@@ -397,6 +406,8 @@ mod tests {
         assert!(!response.0.on_chain_verified);
         assert!(!response.0.payment_execution_enabled);
         assert_eq!(response.0.manifest["status"],"not-deployed");
+        assert_eq!(response.0.public_interface["status"],"source-interface-only");
+        assert!(response.0.public_interface["contracts"]["corridor-registry"]["reads"]["is_enabled"].is_object());
         assert!(response.0.manifest["contractAddresses"].as_object()
             .is_some_and(|entries|entries.is_empty()));
     }

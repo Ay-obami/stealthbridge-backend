@@ -45,6 +45,17 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/NetworkStatus"}
         "502": {description: RPC unreachable, malformed or wrong network}
+  /v1/contracts:
+    get:
+      operationId: contractDiscovery
+      summary: Source-verified Soroban registry interface and undeployed Testnet manifest
+      responses:
+        "200":
+          description: Canonical source manifest + read method inventory; on-chain verification false
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ContractDiscovery"}
+        "503": {description: Manifest or interface no longer matches fail-closed rules}
   /v1/capabilities:
     get:
       operationId: capabilities
@@ -134,6 +145,16 @@ paths:
         "501": {description: Fund-moving functionality not enabled}
 components:
   schemas:
+    ContractDiscovery:
+      type: object
+      required: [network, source, manifest, public_interface, on_chain_verified, payment_execution_enabled]
+      properties:
+        network: {type: string, const: testnet}
+        source: {type: string, const: stealthbridge-contracts/deployments/testnet/manifest.json}
+        manifest: {type: object}
+        public_interface: {type: object}
+        on_chain_verified: {type: boolean, const: false}
+        payment_execution_enabled: {type: boolean, const: false}
     Capabilities:
       type: object
       required: [payments_enabled, confidential_token_verified, private_payments_verified, fiat_payouts_enabled]

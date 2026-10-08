@@ -16,3 +16,12 @@ if snapshot!=origin:
 if snapshot.get("status")!="not-deployed" or snapshot.get("verified") is not False:
     raise SystemExit("Unverified contract deployment must not be advertised by read-only backend")
 print("Cross-repository contract deployment snapshot matches canonical un-deployed manifest.")
+
+INTERFACE="https://raw.githubusercontent.com/stealthbridge-labs/stealthbridge-contracts/main/integrations/public-soroban-interface.v1.json"
+local=json.loads(Path("deployments/testnet/public-soroban-interface.v1.json").read_text())
+with urlopen(INTERFACE,timeout=15) as response:
+    upstream=json.load(response)
+if local!=upstream:
+    raise SystemExit("Soroban source-interface snapshot drifted from canonical contracts repository")
+assert local["status"]=="source-interface-only"
+print("Public registry interface snapshot matches source; no on-chain contract read implied.")

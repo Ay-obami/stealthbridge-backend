@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "network": "testnet",
+  "status": "source-interface-only",
+  "disclaimer": "Soroban source method inventory only; not proof of deployed contracts or private transfers",
+  "contracts": {
+    "corridor-registry": {
+      "source": "contracts/corridor-registry/src/lib.rs",
+      "reads": {
+        "get_admin": {
+          "args": [],
+          "returns": "Address"
+        },
+        "pending_admin": {
+          "args": [],
+          "returns": "Option<Address>"
+        },
+        "is_paused": {
+          "args": [],
+          "returns": "bool"
+        },
+        "is_enabled": {
+          "args": [
+            "String"
+          ],
+          "returns": "bool"
+        }
+      },
+      "writes": [
+        "propose_admin",
+        "cancel_admin_proposal",
+        "accept_admin",
+        "set_paused",
+        "set_enabled"
+      ]
+    },
+    "policy-registry": {
+      "source": "contracts/policy-registry/src/lib.rs",
+      "reads": {
+        "admin": {
+          "args": [],
+          "returns": "Address"
+        },
+        "pending_admin": {
+          "args": [],
+          "returns": "Option<Address>"
+        },
+        "is_paused": {
+          "args": [],
+          "returns": "bool"
+        },
+        "get_rule": {
+          "args": [
+            "String"
+          ],
+          "returns": "Option<PolicyRecord>"
+        },
+        "is_effective": {
+          "args": [
+            "String"
+          ],
+          "returns": "bool"
+        }
+      },
+      "writes": [
+        "propose_admin",
+        "cancel_admin_proposal",
+        "accept_admin",
+        "set_paused",
+        "set_rule"
+      ]
+    }
+  }
+}
