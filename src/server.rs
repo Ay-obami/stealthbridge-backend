@@ -143,6 +143,20 @@ async fn corridors(State(state): State<Arc<AppState>>) -> Result<Json<Vec<Corrid
     Ok(Json(rows))
 }
 
+/// Read exactly one operator-configured, enabled corridor. Never invent entries.
+async fn corridor_by_id(
+    Path(id):Path<String>,State(state):State<Arc<AppState>>
+)->Result<Json<Corridor>,StatusCode>{
+    let id=Uuid::parse_str(&id).map_err(|_|StatusCode::BAD_REQUEST)?;
+    let pool=state.db.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    sqlx::query_as::<_,Corridor>(
+        "SELECT id, origin_country, destination_country, asset_code, asset_issuer, privacy_rail \
+         FROM corridors WHERE enabled=TRUE AND id=$1"
+    ).bind(id).fetch_optional(pool).await
+        .map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?
+        .map(Json).ok_or(StatusCode::NOT_FOUND)
+}
+
 #[derive(Serialize)]
 struct ApiError {
     code: &'static str,
@@ -205,6 +219,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/network",get(network))
         .route("/v1/capabilities",get(capabilities))
         .route("/v1/corridors",get(corridors))
+        .route("/v1/corridors/{id}",get(corridor_by_id))
         .route("/v1/transactions/{hash}",get(public_transaction))
         .route("/v1/settlements",post(disabled))
         .with_state(Arc::new(state))

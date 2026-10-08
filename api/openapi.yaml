@@ -56,6 +56,24 @@ paths:
                 type: array
                 items: {$ref: "#/components/schemas/Corridor"}
         "503": {description: Database not configured or temporarily unavailable}
+  /v1/corridors/{id}:
+    get:
+      operationId: corridorById
+      summary: Retrieve a single enabled, operator-configured corridor
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Configured enabled corridor, not proof of real partner/liquidity eligibility
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Corridor"}
+        "400": {description: Invalid UUID}
+        "404": {description: Unknown or disabled corridor}
+        "503": {description: Database missing or unavailable}
   /v1/transactions/{hash}:
     get:
       operationId: transactionObservation

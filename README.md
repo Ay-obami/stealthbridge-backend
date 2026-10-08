@@ -40,3 +40,7 @@ For real corridor records, set a PostgreSQL `DATABASE_URL` and apply `migrations
 - Backend internal settlement state transitions are still not public payment APIs and require policy, authentication and privacy-proof verification before money movement.
 
 See [service readiness and exact asset value notes](docs/ENGINEERING-FOUNDATIONS.md).
+
+### Corridor lookup
+
+`GET /v1/corridors/{id}` selects one **enabled** operator-configured record by UUID with a parameterized PostgreSQL query. Invalid UUIDs return 400, unavailable/disabled records 404 and a missing database 503. No country, asset identity, rate, issuer relationship or payout availability is synthesized. The SDK exposes the same typed read.
