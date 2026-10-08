@@ -25,5 +25,5 @@ vercel_runtime = { version = "2.4", features = ["axum"] }
 tower = "0.5"
 
 [[bin]]
-name = "axum-vercel"
+name = "main"
 path = "api/axum.rs"
