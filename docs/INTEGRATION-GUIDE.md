@@ -63,3 +63,9 @@ A database is intentionally not seeded with example corridors. An unconfigured i
 ## 6. Release sequence
 
 First verify API/SDK schema agreement and remote endpoint data, then authenticated organization identity, then proof/asset compatibility, then signed quotes and structured settlement attempts, then provider-specific payout reconciliation. Review security, licensing and local compliance requirements before anything fund-moving. The [backend roadmap](../ROADMAP.md) describes full exit criteria.
+
+## RPC hardening (concurrent-reader protection)
+
+The read-only Stellar upstream client has an 8-second HTTP timeout, **16 simultaneous RPC request permits**, and a **2 MiB maximum streamed response**. Responses are not deserialized until their bounded content is collected. Unexpected JSON-RPC versions, mismatched response IDs, error objects, null results and untrusted ledger hashes fail closed as upstream errors. Correctness tests cover malformed response envelopes.
+
+The configured RPC URL must be HTTPS without embedded credentials, fragment or query string. Readiness probes execute network and database checks concurrently, with a two-second DB timeout. These are service-capacity safeguards, **not per-user/IP rate limits**; public deployment still needs an ingress limiter, trusted proxy policy and monitoring.

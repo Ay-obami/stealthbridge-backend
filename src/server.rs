@@ -6,18 +6,22 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
 use std::{env, error::Error, sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
 use tracing::warn;
 use uuid::Uuid;
 use crate::transaction::{self,TransactionObservation};
 
 /// The only network accepted until privacy, compliance and security gates are satisfied.
 const TESTNET_PASSPHRASE: &str = "Test SDF Network ; September 2015";
+const MAX_RPC_BODY_BYTES: usize = 2 * 1024 * 1024;
+const MAX_IN_FLIGHT_RPC: usize = 16;
 
 #[derive(Clone)]
 pub struct AppState {
     http: Client,
     rpc_url: String,
     db: Option<PgPool>,
+    rpc_permits: Arc<Semaphore>,
 }
 
 impl AppState {
@@ -25,8 +29,9 @@ impl AppState {
         let rpc_url = env::var("STELLAR_RPC_URL")
             .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_owned());
         let url = reqwest::Url::parse(&rpc_url)?;
-        if url.scheme() != "https" {
-            return Err("STELLAR_RPC_URL must use HTTPS".into());
+        if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some()
+            || url.query().is_some() || url.fragment().is_some() {
+            return Err("STELLAR_RPC_URL must be HTTPS with no credentials, query or fragment".into());
         }
         let http = Client::builder().timeout(Duration::from_secs(8)).build()?;
         let db = match env::var("DATABASE_URL") {
@@ -36,7 +41,7 @@ impl AppState {
             }
             _ => None,
         };
-        Ok(Self {http, rpc_url, db})
+        Ok(Self {http, rpc_url, db, rpc_permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT_RPC))})
     }
 
     #[cfg(test)]
@@ -45,6 +50,7 @@ impl AppState {
             http: Client::new(),
             rpc_url: "https://soroban-testnet.stellar.org".to_owned(),
             db: None,
+            rpc_permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT_RPC)),
         }
     }
 
@@ -53,13 +59,34 @@ impl AppState {
     }
 
     async fn rpc_with_params(&self, method: &str, params: Option<Value>) -> Result<Value, ()> {
-        let response = self.http.post(&self.rpc_url)
+        // Backpressure is bounded: no unbounded simultaneous Stellar RPC calls.
+        // Permit release is automatic, including after timeout/cancellation.
+        let _permit = self.rpc_permits.acquire().await.map_err(|_| ())?;
+        let mut response = self.http.post(&self.rpc_url)
             .json(&json!({"jsonrpc":"2.0","id":"stealthbridge-observer","method":method,"params":params.unwrap_or(json!({}))}))
             .send().await.map_err(|_| ())?;
         if !response.status().is_success() {return Err(());}
-        let payload: Value = response.json().await.map_err(|_| ())?;
-        if payload.get("error").is_some() {return Err(());}
-        payload.get("result").cloned().ok_or(())
+        if response.content_length().is_some_and(|len| len > MAX_RPC_BODY_BYTES as u64) {
+            return Err(());
+        }
+        // Do not use response.json(): a broken RPC could return arbitrarily
+        // large, untrusted XDR/event payloads before parsing even starts.
+        let mut body = Vec::with_capacity(4096);
+        while let Some(chunk) = response.chunk().await.map_err(|_| ())? {
+            if chunk.len() > MAX_RPC_BODY_BYTES - body.len() {return Err(());}
+            body.extend_from_slice(&chunk);
+        }
+        let payload: Value = serde_json::from_slice(&body).map_err(|_| ())?;
+        Self::checked_rpc_envelope(&payload)
+    }
+
+    fn checked_rpc_envelope(payload: &Value) -> Result<Value, ()> {
+        if payload.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
+            || payload.get("id").and_then(Value::as_str) != Some("stealthbridge-observer")
+            || payload.get("error").is_some_and(|value| !value.is_null()) {
+            return Err(());
+        }
+        payload.get("result").filter(|value| !value.is_null()).cloned().ok_or(())
     }
 
     async fn network(&self) -> Result<NetworkStatus, ()> {
@@ -76,7 +103,11 @@ impl AppState {
             protocol_version: latest.get("protocolVersion").and_then(Value::as_u64).ok_or(())?,
             ledger_sequence: latest.get("sequence").and_then(Value::as_u64).ok_or(())?,
             ledger_closed_at_unix: latest.get("closeTime").and_then(Value::as_str).ok_or(())?.to_owned(),
-            ledger_hash: latest.get("id").and_then(Value::as_str).ok_or(())?.to_owned(),
+            ledger_hash: {
+                let hash = latest.get("id").and_then(Value::as_str).ok_or(())?;
+                if !transaction::valid_hash(hash) { return Err(()); }
+                hash.to_ascii_lowercase()
+            },
             source: "stellar-rpc",
         })
     }
@@ -197,12 +228,21 @@ struct Readiness {
 /// Non-custodial readiness observation: healthy process != usable payment rail.
 async fn readiness(State(state):State<Arc<AppState>>)
     ->(StatusCode,Json<Readiness>){
-    let chain=state.network().await.is_ok();
-    let db=match &state.db{
-        Some(pool)=>sqlx::query_scalar::<_,i32>("SELECT 1")
-           .fetch_one(pool).await.is_ok(),
-        None=>false,
-    };
+    // Parallel bounded checks reduce the load balancer's worst-case wait.
+    let (chain_result, db_result) = tokio::join!(
+        state.network(),
+        async {
+            match &state.db {
+                Some(pool) => tokio::time::timeout(
+                    Duration::from_secs(2),
+                    sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(pool)
+                ).await.is_ok_and(|result| result.is_ok()),
+                None => false,
+            }
+        }
+    );
+    let chain = chain_result.is_ok();
+    let db = db_result;
     let code=if chain && db{StatusCode::OK}else{StatusCode::SERVICE_UNAVAILABLE};
     (code,Json(Readiness{
        status:if chain && db{"ready"}else{"degraded"},
@@ -235,5 +275,21 @@ mod tests {
     #[test]
     fn testnet_network_passphrase_is_explicit() {
         assert_eq!(TESTNET_PASSPHRASE, "Test SDF Network ; September 2015");
+    }
+    #[test]
+    fn upstream_must_have_matching_rpc_envelope_and_no_error() {
+        let valid = json!({"jsonrpc":"2.0","id":"stealthbridge-observer","result":{"status":"NOT_FOUND"}});
+        assert_eq!(AppState::checked_rpc_envelope(&valid).unwrap()["status"],"NOT_FOUND");
+        for broken in [
+            json!({"id":"stealthbridge-observer","result":{}}),
+            json!({"jsonrpc":"2.0","id":"another-client","result":{}}),
+            json!({"jsonrpc":"2.0","id":"stealthbridge-observer","result":null}),
+            json!({"jsonrpc":"2.0","id":"stealthbridge-observer","error":{"code":-32000}}),
+        ] { assert!(AppState::checked_rpc_envelope(&broken).is_err()); }
+    }
+    #[test]
+    fn backpressure_and_response_budget_are_finite() {
+        assert_eq!(MAX_IN_FLIGHT_RPC,16);
+        assert_eq!(MAX_RPC_BODY_BYTES,2*1024*1024);
     }
 }
