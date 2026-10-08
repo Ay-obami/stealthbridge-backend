@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "network": "testnet",
+  "status": "not-deployed",
+  "verified": false,
+  "contractAddresses": {},
+  "assetIssuers": {},
+  "txHashes": [],
+  "notes": "No contract deployments or proof verifications claimed. Populate only after a reproducible testnet deployment."
+}

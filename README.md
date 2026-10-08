@@ -76,3 +76,7 @@ Keep host clocks synchronized; slow networks can require explicit operator inves
 ## Future provider webhook inbox
 
 A provider-neutral authenticated-notification verifier and PostgreSQL idempotent inbox are available as internal building blocks. They do not enable provider integrations, public callback endpoints, payouts or settlement transitions. See src/webhook.rs and its unit/integration tests.
+
+## Inter-repository Testnet contract discovery
+
+`GET /v1/contracts` serves the exact **undeployed** contract manifest from the Soroban repository as a read-only build snapshot, with `on_chain_verified=false` and `payment_execution_enabled=false`. CI compares the snapshot to the canonical upstream file; it fails on drift or an unverified deployment claim. The Vercel Rust adapter in `api/axum.rs` uses the same Axum routes as the local server. See [deployment notes](docs/DEPLOYMENT.md).

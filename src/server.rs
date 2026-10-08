@@ -156,6 +156,43 @@ async fn health() -> Json<Health> {
 async fn network(State(state): State<Arc<AppState>>) -> Result<Json<NetworkStatus>, StatusCode> {
     state.network().await.map(Json).map_err(|_| StatusCode::BAD_GATEWAY)
 }
+
+/// Immutable build-time snapshot from stealthbridge-contracts/deployments/testnet.
+/// Manifest VERIFIED does NOT equal independent on-chain verification.
+const CONTRACT_MANIFEST: &str = include_str!("../deployments/testnet/manifest.json");
+#[derive(Serialize)]
+struct ContractDiscovery {
+    network: &'static str,
+    source: &'static str,
+    manifest: Value,
+    on_chain_verified: bool,
+    payment_execution_enabled: bool,
+}
+async fn contract_discovery() -> Result<Json<ContractDiscovery>,StatusCode> {
+    let manifest:Value=serde_json::from_str(CONTRACT_MANIFEST)
+        .map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
+    if manifest.get("schemaVersion").and_then(Value::as_u64)!=Some(1)
+        || manifest.get("network").and_then(Value::as_str)!=Some("testnet")
+        || manifest.get("status").and_then(Value::as_str)!=Some("not-deployed")
+        || manifest.get("verified").and_then(Value::as_bool)!=Some(false)
+        || manifest.get("contractAddresses").and_then(Value::as_object)
+            .is_none_or(|addresses|!addresses.is_empty())
+        || manifest.get("txHashes").and_then(Value::as_array)
+            .is_none_or(|hashes|!hashes.is_empty())
+    {
+        // Never serve a future claimed deployment until a separate on-chain
+        // attestation workflow is implemented and reviewed.
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    Ok(Json(ContractDiscovery{
+        network:"testnet",
+        source:"stealthbridge-contracts/deployments/testnet/manifest.json",
+        manifest,
+        on_chain_verified:false,
+        payment_execution_enabled:false,
+    }))
+}
+
 async fn capabilities() -> Json<Capabilities> {
     // No real payment handlers or privacy verifications have been implemented.
     // These flags remain false until code and independently reproducible evidence exist.
@@ -341,6 +378,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/network",get(network))
         .route("/v1/observer",get(observer_head))
         .route("/v1/capabilities",get(capabilities))
+        .route("/v1/contracts",get(contract_discovery))
         .route("/v1/corridors",get(corridors))
         .route("/v1/corridors/page",get(corridor_page))
         .route("/v1/corridors/{id}",get(corridor_by_id))
@@ -352,6 +390,16 @@ pub fn router(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn contract_discovery_reflects_actual_undeployed_canonical_manifest() {
+        let response=contract_discovery().await.expect("synchronized Testnet manifest");
+        assert_eq!(response.0.network,"testnet");
+        assert!(!response.0.on_chain_verified);
+        assert!(!response.0.payment_execution_enabled);
+        assert_eq!(response.0.manifest["status"],"not-deployed");
+        assert!(response.0.manifest["contractAddresses"].as_object()
+            .is_some_and(|entries|entries.is_empty()));
+    }
     #[test]
     fn router_constructs_without_database_or_credentials() {
         let _ = router(AppState::without_db());

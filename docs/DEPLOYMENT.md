@@ -22,3 +22,16 @@ Expected: `/v1/network` returns the actual ledger head and protocol. Settlements
 
 ## Scale/security
 Serve behind TLS, managed DDoS controls and request limits. Add service-level auth and tenant-aware settlement reads *before enabling write endpoints*. Do not publish KYC records or private witnesses to this API. Do not expose a database administrative operation publicly.
+
+## Vercel Rust Functions adapter
+
+The repository contains `api/axum.rs` and `vercel.json`, adapting the **same Axum router** through the official `vercel_runtime` Rust Functions runtime (currently beta). A Vercel project can import `stealthbridge-labs/stealthbridge-backend` with the Rust/Axum preset. The adapter creates a request-handling service, not an always-on listener.
+
+- No permanent background ledger observer runs inside Vercel Functions; run it on a separate supervised persistent worker.
+- With no `DATABASE_URL`, network and capability reads remain available, but corridors/observer return explicit 503 and `/ready` remains degraded. Migrations are never applied at startup.
+- `GET /v1/contracts` exposes the canonical undeployed Testnet manifest snapshot and **always reports on-chain verification false**. It returns 503 if someone incorrectly inserts an unverified deployment record.
+- If the Vercel build or runtime cannot support the deployed Rust dependencies, inspect actual logs and do not claim functionality from a build alone.
+
+To connect an engineering staging frontend, set the `STEALTHBRIDGE_API_URL` on a **separate Vercel preview project** pointing to the actual backend HTTPS URL, with `STEALTHBRIDGE_SITE_MODE=preview`. Keep the production marketing site on `landing`.
+
+**Deploying the API cannot enable payments or contract transactions.** The `POST /v1/settlements` handler remains disabled.
