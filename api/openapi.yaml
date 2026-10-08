@@ -1,58 +1,79 @@
 openapi: 3.1.0
 info:
   title: StealthBridge Testnet API
-  version: 0.2.0
+  version: 0.3.0
   description: >
-    Live Stellar RPC observation and operator-configured corridor discovery.
-    No hardcoded rate/quote/transaction records. Confidential payment submission
-    remains disabled until protocol verification and operational controls exist.
+    Explicitly read-only public Stellar RPC observation and operator-configured
+    corridor discovery. Confidential settlement submission is disabled.
+    No hardcoded quotes, corridors, payment providers or successful payouts.
+servers:
+  - url: http://localhost:8080
 paths:
   /health:
     get:
       operationId: health
-      summary: Process liveness (not network readiness)
+      summary: API process liveness; not chain readiness
       responses:
-        "200": { description: API is responding }
+        "200": {description: API process responding}
   /v1/network:
     get:
       operationId: network
-      summary: Verified live Stellar Testnet ledger head from configured RPC
+      summary: Read observed Stellar Testnet ledger after verifying network passphrase
       responses:
         "200":
-          description: Observed network metadata
+          description: Observed ledger metadata
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/NetworkStatus' }
-        "502": { description: RPC unreachable, malformed, or not Testnet }
+              schema: {$ref: "#/components/schemas/NetworkStatus"}
+        "502": {description: RPC unreachable, malformed or wrong network}
   /v1/capabilities:
     get:
       operationId: capabilities
-      summary: Truthful capabilities; payment rails disabled until integrated
+      summary: Truthful capability flags, never inferred from RPC liveness
       responses:
         "200":
-          description: Capability flags
+          description: Current integration flags
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Capabilities' }
+              schema: {$ref: "#/components/schemas/Capabilities"}
   /v1/corridors:
     get:
       operationId: corridors
-      summary: Read configured enabled corridor entries, never fabricated entries
+      summary: List enabled, operator-created corridor entries, potentially empty
       responses:
         "200":
-          description: Enabled corridors, possibly empty
+          description: Registered enabled corridors
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Corridor' }
-        "503": { description: Database not configured or unavailable }
+                items: {$ref: "#/components/schemas/Corridor"}
+        "503": {description: Database not configured or temporarily unavailable}
+  /v1/transactions/{hash}:
+    get:
+      operationId: transactionObservation
+      summary: Read public Testnet transaction status without exposing raw XDR or events
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          description: Exact 64-character hex transaction hash
+          schema: {type: string, pattern: "^[a-fA-F0-9]{64}$"}
+      responses:
+        "200":
+          description: Transaction included in retained Stellar RPC history (success or failed execution)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TransactionObservation"}
+        "400": {description: Invalid hash}
+        "404": {description: Hash not found within RPC retention; not proof it never existed}
+        "502": {description: Upstream RPC failure or unexpected response}
   /v1/settlements:
     post:
       operationId: disabledSettlement
-      summary: Reserved write endpoint (cannot transfer funds)
+      summary: Reserved future authentication-bound settlement command, disabled
       responses:
-        "501": { description: Confidential settlement not yet available }
+        "501": {description: Fund-moving functionality not enabled}
 components:
   schemas:
     Capabilities:
@@ -84,3 +105,13 @@ components:
         asset_code: {type: string}
         asset_issuer: {type: [string, "null"]}
         privacy_rail: {type: string, enum: [confidential-token, private-payments]}
+    TransactionObservation:
+      type: object
+      required: [hash, status, ledger, closed_at_unix, latest_ledger, source]
+      properties:
+        hash: {type: string, pattern: "^[0-9a-f]{64}$"}
+        status: {type: string, enum: [SUCCESS, FAILED]}
+        ledger: {type: integer}
+        closed_at_unix: {type: string}
+        latest_ledger: {type: integer}
+        source: {type: string, const: stellar-rpc}
