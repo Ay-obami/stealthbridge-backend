@@ -44,3 +44,7 @@ See [service readiness and exact asset value notes](docs/ENGINEERING-FOUNDATIONS
 ### Corridor lookup
 
 `GET /v1/corridors/{id}` selects one **enabled** operator-configured record by UUID with a parameterized PostgreSQL query. Invalid UUIDs return 400, unavailable/disabled records 404 and a missing database 503. No country, asset identity, rate, issuer relationship or payout availability is synthesized. The SDK exposes the same typed read.
+
+## Detailed integration guide
+
+[Deployment and API integration reference](docs/INTEGRATION-GUIDE.md) documents every read-only route, failure status, database boundary and release precondition.
