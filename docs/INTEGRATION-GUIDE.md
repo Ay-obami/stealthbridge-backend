@@ -21,7 +21,8 @@ Rust API (network passphrase enforced)
 | Route | Input | Result | Operational caveat |
 |---|---|---|---|
 | `GET /health` | None | 200 process liveness | Not chain readiness |
-| `GET /ready` | None | 200 ready / 503 degraded | Requires both RPC and DB; payment flags remain disabled |
+| `GET /ready` | None | 200 ready / 503 degraded | Separates an unconfigured DB from a failed DB probe; payment flags remain disabled |
+| `GET /internal/metrics` | `Authorization: Bearer …` | 200 metrics / 401 unauthorized / 404 disabled | Aggregate internal metrics; enabled only when `STEALTHBRIDGE_METRICS_TOKEN` is set |
 | `GET /v1/network` | None | Live protocol/ledger and passphrase | 502 on bad/unavailable RPC |
 | `GET /v1/capabilities` | None | Explicit boolean capability flags | Privacy and payment flags remain false |
 | `GET /v1/corridors` | None | Enabled database records, maybe empty | 503 without PostgreSQL |
@@ -44,7 +45,7 @@ curl -i http://127.0.0.1:8080/ready
 curl -i http://127.0.0.1:8080/v1/network
 ```
 
-A database is intentionally not seeded with example corridors. An unconfigured instance may serve `/v1/network` while `/ready` and `/v1/corridors` correctly report degraded/unavailable.
+A database is intentionally not seeded with example corridors. An unconfigured instance may serve `/v1/network` while `/ready` and `/v1/corridors` correctly report degraded/unavailable. Error responses include a stable `error.code`, a safe message and a generated `trace_id`; the same ID is returned in `X-Request-ID` for log correlation. Do not echo arbitrary request values into logs or error bodies.
 
 ## 4. Financial domain foundations
 

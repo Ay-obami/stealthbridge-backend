@@ -36,7 +36,9 @@ For real corridor records, set a PostgreSQL `DATABASE_URL` and apply `migrations
 
 - `src/amount.rs` provides checked fixed-precision `i128` minor-unit arithmetic, explicit asset/network identity and strict decimal parsing. It uses no floating-point financial math. Asset decimals must come from verified issuer/chain metadata; this module does not discover or trust a stablecoin by itself.
 - `GET /health` reports process liveness only.
-- `GET /ready` probes actual Stellar RPC **and** configured PostgreSQL with bounded upstream calls; 200 requires both, otherwise 503 with a non-sensitive degraded status. It **always** reports `payments=disabled`, which is different from network readiness.
+- `GET /ready` probes actual Stellar RPC **and** configured PostgreSQL with bounded upstream calls; 200 requires both, otherwise 503 with a non-sensitive error envelope and dependency details. It distinguishes an unconfigured database from a configured but unavailable one and **always** reports `payments=disabled`.
+- Failed requests return stable JSON error codes with a generated `trace_id` and `X-Request-ID` header. Logs contain only the trace ID and status.
+- Optional `/internal/metrics` exports bounded readiness/RPC aggregates. Set `STEALTHBRIDGE_METRICS_TOKEN` to enable it; without a token the route returns 404. The endpoint never labels metrics with wallets, transaction hashes, tenants or request IDs.
 - Backend internal settlement state transitions are still not public payment APIs and require policy, authentication and privacy-proof verification before money movement.
 
 See [service readiness and exact asset value notes](docs/ENGINEERING-FOUNDATIONS.md).
