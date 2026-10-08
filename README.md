@@ -62,3 +62,7 @@ Set \`STEALTHBRIDGE_ENABLE_LEDGER_OBSERVER=true\` **only** on a designated backe
 \`GET /v1/observer\` exposes the last persisted public ledger checkpoint; 404 means no observation has been recorded, and 503 means no database service. This record **may be stale** and is not a settlement receipt, indexer backlog, account balance or regulated payout confirmation.
 
 Operate **one designated observer per environment**; multiple replicas can safely contend on row locks but cause needless RPC load. Production worker leases, chain history backfill, event indexing, failure metrics and replay protection remain future work. The opt-in worker never signs or submits transactions.
+
+## Tenant access-control foundations
+
+The backend now includes a role and separation-of-duties model with a minimal organization/member schema. These are **internal building blocks**, not authentication endpoints or financial permissions. See [organization authorization and missing controls](docs/ORGANIZATION-AUTHORIZATION.md).
