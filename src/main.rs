@@ -10,7 +10,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = stealthbridge_backend::server::AppState::from_env().await?;
     if env::var("STEALTHBRIDGE_ENABLE_LEDGER_OBSERVER").ok().as_deref()==Some("true"){
         let worker=state.clone();
-        tokio::spawn(async move {stealthbridge_backend::server::run_ledger_observer(worker).await;});
+        let _observer_handle = tokio::spawn(async move {stealthbridge_backend::server::run_ledger_observer(worker).await;});
     }
     let app = stealthbridge_backend::server::router(state);
     let port: u16 = env::var("PORT").unwrap_or_else(|_| "8080".to_owned()).parse()?;
