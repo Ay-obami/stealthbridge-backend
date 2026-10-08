@@ -72,3 +72,7 @@ The backend now includes a role and separation-of-duties model with a minimal or
 The readiness probe verifies not just a valid Testnet RPC network passphrase and database but a ledger **closed within 180 seconds of the current server clock**. An old ledger, invalid timestamp, or timestamp more than 30 seconds ahead of the server clock makes \`GET /ready\` report degraded (503), even if \`getNetwork\` and \`getLatestLedger\` return HTTP success. \`GET /v1/network\` still reports actual metadata without changing or fabricating it.
 
 Keep host clocks synchronized; slow networks can require explicit operator investigation. A fresh ledger is only an infrastructure-readiness condition and **does not enable payments**.
+
+## Future provider webhook inbox
+
+A provider-neutral authenticated-notification verifier and PostgreSQL idempotent inbox are available as internal building blocks. They do not enable provider integrations, public callback endpoints, payouts or settlement transitions. See src/webhook.rs and its unit/integration tests.
