@@ -33,3 +33,12 @@ Until these are implemented and independently tested, \`POST /v1/settlements\` r
 ## PostgreSQL integrity tests
 
 `tests/organization_schema.rs` uses an isolated CI PostgreSQL service to verify scoped primary keys, valid/invalid roles, subject length checks, foreign-key enforcement, revocation timestamp constraints, active membership isolation and restricted tenant deletion. It inserts only synthetic, explicitly test-labeled records and cleans them up. Passing these tests **does not establish wallet identity verification, database row-level security or permission to move funds**.
+
+
+## DB-enforced membership guard
+
+\`authz::authorize_member(pool, organization_uuid, verified_subject, permission)\` now queries active organization status and non-revoked membership for the **exact** tenant, maps only recognized roles, then checks the permission matrix. It denies unknown tenants, suspended organizations, revoked members and unauthorized actions. PostgreSQL failures remain distinct errors, never implicit permissions.
+
+**Important:** This internal read-only guard presupposes the subject's identity has already been cryptographically proven by a trusted auth layer. No public session/signature authentication exists yet. For future financial mutations the membership row must be locked and checked in the **same transaction** as the intended state change, with immutable signed approvals bound to the request digest, expiry, signer and tenant. This function alone does not meet that requirement.
+
+CI uses a disposable PostgreSQL database to verify isolation, revocation, inactive organizations and permission boundaries.

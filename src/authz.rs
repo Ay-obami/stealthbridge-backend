@@ -59,6 +59,51 @@ pub fn check_distinct_approver(
     Ok(())
 }
 
+
+/// Internal data-bound authorization guard. Caller MUST already hold a
+/// cryptographically verified subject identity for the selected organization;
+/// untrusted HTTP headers/body fields must not be passed here as identity.
+///
+/// This guard is suitable for read-only or pre-flight decisions. Future
+/// financial writes must lock the membership row and perform authorization
+/// in the SAME transaction as the mutation to avoid revocation races.
+#[derive(Debug)]
+pub enum MembershipError {
+    InvalidSubject,
+    Denied,
+    Database(sqlx::Error),
+}
+impl From<sqlx::Error> for MembershipError {
+    fn from(error: sqlx::Error) -> Self { Self::Database(error) }
+}
+
+pub async fn authorize_member(
+    pool: &sqlx::PgPool,
+    organization: uuid::Uuid,
+    verified_subject: &str,
+    permission: Permission,
+) -> Result<Role, MembershipError> {
+    if verified_subject.len() < 8
+        || verified_subject.len() > 256
+        || verified_subject.trim() != verified_subject
+        || verified_subject.chars().any(char::is_control)
+    {
+        return Err(MembershipError::InvalidSubject);
+    }
+    // Explicit tenant scope, active status, non-revocation. A missing org or
+    // unrecognized role is DENIED (never converted to an admin permission).
+    let role_name = sqlx::query_scalar::<_, String>(
+        "SELECT m.role FROM organization_members m \
+         JOIN organizations o ON o.id=m.organization_id \
+         WHERE m.organization_id=$1 AND m.subject=$2 \
+         AND m.revoked_at IS NULL AND o.status='active'"
+    ).bind(organization).bind(verified_subject)
+        .fetch_optional(pool).await?;
+    let role = role_name.as_deref().and_then(Role::from_db).ok_or(MembershipError::Denied)?;
+    if !permits(role, permission) { return Err(MembershipError::Denied); }
+    Ok(role)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
