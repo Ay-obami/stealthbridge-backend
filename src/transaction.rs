@@ -21,19 +21,19 @@ pub fn valid_hash(s: &str) -> bool {
 
 /// Whitelist output from Stellar-RPC; never proxy envelopeXdr, resultXdr,
 /// events, return values, secret parameters or partner metadata.
-pub fn parse_result(hash: &str, result: &Value) -> Result<Option<TransactionObservation>, ()> {
-    if !valid_hash(hash) { return Err(()); }
-    let returned = result.get("txHash").and_then(Value::as_str).ok_or(())?;
-    if !returned.eq_ignore_ascii_case(hash) { return Err(()); }
-    match result.get("status").and_then(Value::as_str).ok_or(())? {
+pub fn parse_result(hash: &str, result: &Value) -> Result<Option<TransactionObservation>, &'static str> {
+    if !valid_hash(hash) { return Err("invalid transaction observation"); }
+    let returned = result.get("txHash").and_then(Value::as_str).ok_or("invalid transaction observation")?;
+    if !returned.eq_ignore_ascii_case(hash) { return Err("invalid transaction observation"); }
+    match result.get("status").and_then(Value::as_str).ok_or("invalid transaction observation")? {
         "NOT_FOUND" => Ok(None),
         "SUCCESS" | "FAILED" => {
-            let status = result["status"].as_str().ok_or(())?.to_owned();
-            let ledger = result["ledger"].as_u64().ok_or(())?;
-            let latest_ledger = result["latestLedger"].as_u64().ok_or(())?;
-            let closed_at_unix = result["createdAt"].as_str().ok_or(())?.to_owned();
+            let status = result["status"].as_str().ok_or("invalid transaction observation")?.to_owned();
+            let ledger = result["ledger"].as_u64().ok_or("invalid transaction observation")?;
+            let latest_ledger = result["latestLedger"].as_u64().ok_or("invalid transaction observation")?;
+            let closed_at_unix = result["createdAt"].as_str().ok_or("invalid transaction observation")?.to_owned();
             if ledger > latest_ledger || !closed_at_unix.bytes().all(|x| x.is_ascii_digit()) {
-                return Err(());
+                return Err("invalid transaction observation");
             }
             Ok(Some(TransactionObservation {
                 hash: hash.to_ascii_lowercase(),
@@ -44,7 +44,7 @@ pub fn parse_result(hash: &str, result: &Value) -> Result<Option<TransactionObse
                 source: "stellar-rpc",
             }))
         }
-        _ => Err(()),
+        _ => Err("invalid transaction observation"),
     }
 }
 
