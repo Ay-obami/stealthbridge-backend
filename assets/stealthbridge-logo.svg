@@ -7,6 +7,7 @@
 <linearGradient id="bridge" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0078ca"/><stop offset=".35" stop-color="#00c6df"/><stop offset="1" stop-color="#04f2b7"/></linearGradient>
 <clipPath id="icon"><path d="M1096,127 L887,127 L845,136 L806,156 L774,185 L744,235 L732,292 L736,352 L646,403 L566,458 L494,520 L435,581 L500,587 L568,620 L661,508 L716,455 L792,395 L947,471 L965,493 L964,507 L954,520 L922,532 L891,528 L821,505 L727,505 L797,576 L857,614 L905,628 L964,627 L996,618 L1028,601 L1057,575 L1079,534 L1083,486 L1075,457 L1060,432 L1037,409 L920,343 L959,318 L1002,310 L1055,322 L1103,357 L1074,324 L1026,297 L975,286 L905,289 L1000,206 L1034,187 Z"/></clipPath>
 </defs>
+<rect width="1672" height="941" fill="#020b12"/>
 <g clip-path="url(#icon)">
 <rect x="400" y="100" width="770" height="560" fill="url(#wing)"/>
 <path d="M724 337 C763 305 821 267 866 243 C919 213 979 226 1024 192 L921 343 L791 397 Z" fill="url(#depth)" opacity=".99"/>
