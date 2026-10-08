@@ -29,3 +29,7 @@ The pure \`check_distinct_approver\` helper rejects a matching initiator/approve
 - Verified legal entity onboarding or fiat financial service eligibility.
 
 Until these are implemented and independently tested, \`POST /v1/settlements\` remains disabled and no role policy may be used to bypass it. The next meaningful integration is a tenant-scoped authenticated identity verifier, not a claim that the roles already grant real authority.
+
+## PostgreSQL integrity tests
+
+`tests/organization_schema.rs` uses an isolated CI PostgreSQL service to verify scoped primary keys, valid/invalid roles, subject length checks, foreign-key enforcement, revocation timestamp constraints, active membership isolation and restricted tenant deletion. It inserts only synthetic, explicitly test-labeled records and cleans them up. Passing these tests **does not establish wallet identity verification, database row-level security or permission to move funds**.
