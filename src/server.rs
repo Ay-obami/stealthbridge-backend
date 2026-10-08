@@ -1,5 +1,5 @@
 use axum::{
-    extract::State, http::StatusCode, routing::{get, post}, Json, Router,
+    extract::{Path, State}, http::StatusCode, routing::{get, post}, Json, Router,
 };
 use reqwest::Client;
 use serde::Serialize;
@@ -8,6 +8,7 @@ use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
 use std::{env, error::Error, sync::Arc, time::Duration};
 use tracing::warn;
 use uuid::Uuid;
+use crate::transaction::{self,TransactionObservation};
 
 /// The only network accepted until privacy, compliance and security gates are satisfied.
 const TESTNET_PASSPHRASE: &str = "Test SDF Network ; September 2015";
@@ -48,8 +49,12 @@ impl AppState {
     }
 
     async fn rpc(&self, method: &str) -> Result<Value, ()> {
+        self.rpc_with_params(method, None).await
+    }
+
+    async fn rpc_with_params(&self, method: &str, params: Option<Value>) -> Result<Value, ()> {
         let response = self.http.post(&self.rpc_url)
-            .json(&json!({"jsonrpc":"2.0","id":"stealthbridge-observer","method":method}))
+            .json(&json!({"jsonrpc":"2.0","id":"stealthbridge-observer","method":method,"params":params.unwrap_or(json!({}))}))
             .send().await.map_err(|_| ())?;
         if !response.status().is_success() {return Err(());}
         let payload: Value = response.json().await.map_err(|_| ())?;
@@ -150,12 +155,30 @@ async fn disabled() -> (StatusCode, Json<ApiError>) {
     }))
 }
 
+
+async fn public_transaction(
+    Path(hash): Path<String>, State(state): State<Arc<AppState>>,
+) -> Result<Json<TransactionObservation>, StatusCode> {
+    if !transaction::valid_hash(&hash) { return Err(StatusCode::BAD_REQUEST); }
+    // Fail closed against accidentally pointing a deployment at another network.
+    let network = state.rpc("getNetwork").await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    if network.get("passphrase").and_then(Value::as_str) != Some(TESTNET_PASSPHRASE) {
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+    let result = state.rpc_with_params("getTransaction", Some(json!({"hash":hash.to_ascii_lowercase()})))
+        .await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    transaction::parse_result(&hash,&result)
+        .map_err(|_| StatusCode::BAD_GATEWAY)?
+        .map(Json).ok_or(StatusCode::NOT_FOUND)
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health",get(health))
         .route("/v1/network",get(network))
         .route("/v1/capabilities",get(capabilities))
         .route("/v1/corridors",get(corridors))
+        .route("/v1/transactions/{hash}",get(public_transaction))
         .route("/v1/settlements",post(disabled))
         .with_state(Arc::new(state))
 }
