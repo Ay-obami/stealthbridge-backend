@@ -75,3 +75,7 @@ The configured RPC URL must be HTTPS without embedded credentials, fragment or q
 \`GET /v1/corridors/page?limit=25&after=<UUID>\` returns \`{items, next_cursor}\` from **real enabled operator records** in PostgreSQL. Limits range 1–100, default 25; malformed UUID or out-of-range count returns 400. The query fetches one extra row to determine whether a cursor should be returned, so the service never reads the full table to produce a page. Stable UUID ordering avoids OFFSET scans at larger tables. A missing database returns 503, an empty configured database gives an empty page with null cursor, and no partner/FX details are synthesized.
 
 Page boundaries are not a long-running database snapshot: concurrent operator enable/disable changes can affect later pages. Cursors must be treated as opaque pagination tokens; a future authenticated and signed cursor scheme will be needed if customer-specific filters appear. \`/v1/corridors\` is retained for backwards compatibility with existing read-only clients; new integrations should use the bounded endpoint.
+
+### Local integration test coverage
+
+CI's PostgreSQL service now runs `tests/corridor_pagination.rs`: it creates five isolated, synthetic **test-only** corridor records, boots the Axum router on a local ephemeral port, verifies two successive keyset pages and malformed query failures, checks that provider/FX fields are absent, and cleans up. This is not a deployment or an authorization to onboard a real corridor.
