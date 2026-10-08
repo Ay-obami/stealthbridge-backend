@@ -18,7 +18,7 @@ impl Asset {
     pub fn validate(&self) -> Result<(),AmountError> {
         if self.network!="testnet" || self.identity.is_empty() ||
            self.identity.len()>128 || !self.identity.bytes().all(|b|
-             b.is_ascii_alphanumeric() || [b':',b'_',b'-'].contains(&b)) ||
+             b.is_ascii_alphanumeric() || b":_-".contains(&b)) ||
            self.decimals>38 {return Err(AmountError::InvalidAsset);}
         Ok(())
     }
