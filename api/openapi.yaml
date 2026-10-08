@@ -15,6 +15,13 @@ paths:
       summary: API process liveness; not chain readiness
       responses:
         "200": {description: API process responding}
+  /ready:
+    get:
+      operationId: readiness
+      summary: Network/database readiness; not payment eligibility
+      responses:
+        "200": {description: Both external read dependencies available}
+        "503": {description: One or more dependencies unavailable}
   /v1/network:
     get:
       operationId: network

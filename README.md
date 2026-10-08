@@ -31,3 +31,12 @@ For real corridor records, set a PostgreSQL `DATABASE_URL` and apply `migrations
 
 ## Other repositories
 [Frontend](https://github.com/stealthbridge-labs/stealthbridge-frontend) · [Contracts](https://github.com/stealthbridge-labs/stealthbridge-contracts) · [SDK](https://github.com/stealthbridge-labs/stealthbridge-sdk)
+
+## Exact asset amounts and readiness
+
+- `src/amount.rs` provides checked fixed-precision `i128` minor-unit arithmetic, explicit asset/network identity and strict decimal parsing. It uses no floating-point financial math. Asset decimals must come from verified issuer/chain metadata; this module does not discover or trust a stablecoin by itself.
+- `GET /health` reports process liveness only.
+- `GET /ready` probes actual Stellar RPC **and** configured PostgreSQL with bounded upstream calls; 200 requires both, otherwise 503 with a non-sensitive degraded status. It **always** reports `payments=disabled`, which is different from network readiness.
+- Backend internal settlement state transitions are still not public payment APIs and require policy, authentication and privacy-proof verification before money movement.
+
+See [service readiness and exact asset value notes](docs/ENGINEERING-FOUNDATIONS.md).

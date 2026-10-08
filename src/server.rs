@@ -172,9 +172,36 @@ async fn public_transaction(
         .map(Json).ok_or(StatusCode::NOT_FOUND)
 }
 
+
+#[derive(Serialize)]
+struct Readiness {
+    status: &'static str,
+    stellar_rpc: &'static str,
+    database: &'static str,
+    payments: &'static str,
+}
+/// Non-custodial readiness observation: healthy process != usable payment rail.
+async fn readiness(State(state):State<Arc<AppState>>)
+    ->(StatusCode,Json<Readiness>){
+    let chain=state.network().await.is_ok();
+    let db=match &state.db{
+        Some(pool)=>sqlx::query_scalar::<_,i32>("SELECT 1")
+           .fetch_one(pool).await.is_ok(),
+        None=>false,
+    };
+    let code=if chain && db{StatusCode::OK}else{StatusCode::SERVICE_UNAVAILABLE};
+    (code,Json(Readiness{
+       status:if chain && db{"ready"}else{"degraded"},
+       stellar_rpc:if chain{"connected"}else{"unavailable"},
+       database:if db{"connected"}else{"unavailable"},
+       payments:"disabled",
+    }))
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health",get(health))
+        .route("/ready",get(readiness))
         .route("/v1/network",get(network))
         .route("/v1/capabilities",get(capabilities))
         .route("/v1/corridors",get(corridors))
