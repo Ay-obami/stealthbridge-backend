@@ -1,3 +1,5 @@
+<div align="center"><img src="assets/stealthbridge-logo.svg" alt="StealthBridge — Confidential payments. Without borders." width="540" /></div>
+
 # StealthBridge Backend
 
 Real-time, **read-only** Stellar Testnet observation API plus an unseeded, operator-managed corridor catalog. Rust, Axum, PostgreSQL, Stellar RPC.

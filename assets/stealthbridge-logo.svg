@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1672 941" role="img" aria-labelledby="title desc">
+<title id="title">StealthBridge</title><desc id="desc">Cyan, ocean-blue and mint ribbon above the StealthBridge wordmark and Confidential payments. Without borders. tagline.</desc>
+<defs>
+<linearGradient id="wing" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#041a38"/><stop offset=".19" stop-color="#006bb0"/><stop offset=".46" stop-color="#05cadd"/><stop offset=".73" stop-color="#00edc9"/><stop offset="1" stop-color="#96ffb2"/></linearGradient>
+<linearGradient id="high" x1="0" y1=".9" x2="1" y2="0"><stop offset="0" stop-color="#02a4d8"/><stop offset=".55" stop-color="#03f0d6"/><stop offset="1" stop-color="#76ffc0"/></linearGradient>
+<linearGradient id="depth" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#001224"/><stop offset=".7" stop-color="#005364"/><stop offset="1" stop-color="#013944"/></linearGradient>
+<linearGradient id="bridge" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0078ca"/><stop offset=".35" stop-color="#00c6df"/><stop offset="1" stop-color="#04f2b7"/></linearGradient>
+<clipPath id="icon"><path d="M1096,127 L887,127 L845,136 L806,156 L774,185 L744,235 L732,292 L736,352 L646,403 L566,458 L494,520 L435,581 L500,587 L568,620 L661,508 L716,455 L792,395 L947,471 L965,493 L964,507 L954,520 L922,532 L891,528 L821,505 L727,505 L797,576 L857,614 L905,628 L964,627 L996,618 L1028,601 L1057,575 L1079,534 L1083,486 L1075,457 L1060,432 L1037,409 L920,343 L959,318 L1002,310 L1055,322 L1103,357 L1074,324 L1026,297 L975,286 L905,289 L1000,206 L1034,187 Z"/></clipPath>
+</defs>
+<g clip-path="url(#icon)">
+<rect x="400" y="100" width="770" height="560" fill="url(#wing)"/>
+<path d="M724 337 C763 305 821 267 866 243 C919 213 979 226 1024 192 L921 343 L791 397 Z" fill="url(#depth)" opacity=".99"/>
+<path d="M716 351 C850 276 1006 263 1109 367 C1084 320 1020 300 945 311 C817 338 699 433 570 620 L434 581 C510 490 622 415 716 351Z" fill="url(#high)"/>
+<path d="M783 395 C836 432 897 472 950 493 C988 513 965 550 913 532 C978 570 1060 608 1081 527 C1081 502 1067 464 1039 441 C1066 519 1030 553 991 542 C938 506 864 456 783 395Z" fill="url(#depth)" opacity=".58"/>
+<path d="M726 505 C809 499 846 510 893 527 C927 539 956 533 972 506 C981 580 943 594 875 563 C817 536 795 521 726 505Z" fill="#00ceeb" opacity=".62"/>
+</g>
+<g font-family="Arial, Helvetica, sans-serif" font-weight="800" letter-spacing="-8" font-size="201">
+<text x="215" y="801" fill="#f6fbff">Stealth</text><text x="824" y="801" fill="url(#bridge)">Bridge</text>
+</g>
+<g font-family="Arial, Helvetica, sans-serif" font-size="35" font-weight="600" letter-spacing="6">
+<text x="236" y="874" fill="#f5fcff">CONFIDENTIAL PAYMENTS.</text><text x="888" y="874" fill="#07d6d9">WITHOUT BORDERS.</text>
+</g>
+</svg>
