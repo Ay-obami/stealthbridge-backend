@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
-use std::{env, error::Error, sync::Arc, time::Duration};
+use std::{env, error::Error, sync::Arc, time::{Duration,SystemTime,UNIX_EPOCH}};
 use tokio::sync::Semaphore;
 use tracing::warn;
 use uuid::Uuid;
@@ -288,6 +288,15 @@ pub async fn run_ledger_observer(state:AppState) {
     }
 }
 
+/// Ledger heads are freshness-bound independently of RPC HTTP liveness.
+/// A small future-clock allowance tolerates upstream timestamp/clock skew.
+fn ledger_is_fresh(closed_at_unix:&str, now:u64, max_age_secs:u64)->bool {
+    closed_at_unix.parse::<u64>().is_ok_and(|closed_at| {
+        closed_at <= now.saturating_add(30) &&
+        now.saturating_sub(closed_at) <= max_age_secs
+    })
+}
+
 #[derive(Serialize)]
 struct Readiness {
     status: &'static str,
@@ -311,7 +320,10 @@ async fn readiness(State(state):State<Arc<AppState>>)
             }
         }
     );
-    let chain = chain_result.is_ok();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs()).unwrap_or(0);
+    // A responsive RPC with an old ledger is not a healthy observer.
+    let chain = chain_result.is_ok_and(|head| ledger_is_fresh(&head.ledger_closed_at_unix, now, 180));
     let db = db_result;
     let code=if chain && db{StatusCode::OK}else{StatusCode::SERVICE_UNAVAILABLE};
     (code,Json(Readiness{
@@ -358,6 +370,15 @@ mod tests {
             json!({"jsonrpc":"2.0","id":"stealthbridge-observer","result":null}),
             json!({"jsonrpc":"2.0","id":"stealthbridge-observer","error":{"code":-32000}}),
         ] { assert!(AppState::checked_rpc_envelope(&broken).is_err()); }
+    }
+    #[test]
+    fn stale_and_future_dated_heads_make_readiness_degraded() {
+        assert!(ledger_is_fresh("1760000000", 1760000010, 180));
+        assert!(!ledger_is_fresh("1759999000", 1760000010, 180));
+        assert!(!ledger_is_fresh("1760000100", 1760000010, 180));
+        assert!(!ledger_is_fresh("not-a-timestamp", 1760000010, 180));
+        assert!(!ledger_is_fresh("", 1760000010, 180));
+        assert!(ledger_is_fresh("1760000030", 1760000010, 180));
     }
     #[test]
     fn backpressure_and_response_budget_are_finite() {

@@ -87,3 +87,9 @@ Set \`STEALTHBRIDGE_ENABLE_LEDGER_OBSERVER=true\` **only** on a designated backe
 \`GET /v1/observer\` exposes the last persisted public ledger checkpoint; 404 means no observation has been recorded, and 503 means no database service. This record **may be stale** and is not a settlement receipt, indexer backlog, account balance or regulated payout confirmation.
 
 Operate **one designated observer per environment**; multiple replicas can safely contend on row locks but cause needless RPC load. Production worker leases, chain history backfill, event indexing, failure metrics and replay protection remain future work. The opt-in worker never signs or submits transactions.
+
+### Bounded ledger freshness
+
+The readiness probe verifies not just a valid Testnet RPC network passphrase and database but a ledger **closed within 180 seconds of the current server clock**. An old ledger, invalid timestamp, or timestamp more than 30 seconds ahead of the server clock makes \`GET /ready\` report degraded (503), even if \`getNetwork\` and \`getLatestLedger\` return HTTP success. \`GET /v1/network\` still reports actual metadata without changing or fabricating it.
+
+Keep host clocks synchronized; slow networks can require explicit operator investigation. A fresh ledger is only an infrastructure-readiness condition and **does not enable payments**.

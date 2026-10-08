@@ -66,3 +66,9 @@ Operate **one designated observer per environment**; multiple replicas can safel
 ## Tenant access-control foundations
 
 The backend now includes a role and separation-of-duties model with a minimal organization/member schema. These are **internal building blocks**, not authentication endpoints or financial permissions. See [organization authorization and missing controls](docs/ORGANIZATION-AUTHORIZATION.md).
+
+### Bounded ledger freshness
+
+The readiness probe verifies not just a valid Testnet RPC network passphrase and database but a ledger **closed within 180 seconds of the current server clock**. An old ledger, invalid timestamp, or timestamp more than 30 seconds ahead of the server clock makes \`GET /ready\` report degraded (503), even if \`getNetwork\` and \`getLatestLedger\` return HTTP success. \`GET /v1/network\` still reports actual metadata without changing or fabricating it.
+
+Keep host clocks synchronized; slow networks can require explicit operator investigation. A fresh ledger is only an infrastructure-readiness condition and **does not enable payments**.
