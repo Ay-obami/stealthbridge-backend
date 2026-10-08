@@ -79,3 +79,11 @@ Page boundaries are not a long-running database snapshot: concurrent operator en
 ### Local integration test coverage
 
 CI's PostgreSQL service now runs `tests/corridor_pagination.rs`: it creates five isolated, synthetic **test-only** corridor records, boots the Axum router on a local ephemeral port, verifies two successive keyset pages and malformed query failures, checks that provider/FX fields are absent, and cleans up. This is not a deployment or an authorization to onboard a real corridor.
+
+## Opt-in durable Stellar observer
+
+Set \`STEALTHBRIDGE_ENABLE_LEDGER_OBSERVER=true\` **only** on a designated backend worker with a real PostgreSQL database. This starts a 15-second read-only Stellar Testnet ledger-head poller; each response must contain the exact Testnet passphrase, positive ledger sequence, a 64-character hexadecimal ledger hash and a valid close-time. A transactionally monotonic cursor is persisted in \`stellar_ledger_observer\`. A same-sequence hash conflict is rejected and flagged; stale responses cannot rewind the cursor. **No transaction XDR, wallet identity, customer or payment data is stored.**
+
+\`GET /v1/observer\` exposes the last persisted public ledger checkpoint; 404 means no observation has been recorded, and 503 means no database service. This record **may be stale** and is not a settlement receipt, indexer backlog, account balance or regulated payout confirmation.
+
+Operate **one designated observer per environment**; multiple replicas can safely contend on row locks but cause needless RPC load. Production worker leases, chain history backfill, event indexing, failure metrics and replay protection remain future work. The opt-in worker never signs or submits transactions.

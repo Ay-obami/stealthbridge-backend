@@ -10,6 +10,7 @@ use tokio::sync::Semaphore;
 use tracing::warn;
 use uuid::Uuid;
 use crate::transaction::{self,TransactionObservation};
+use crate::ledger::{self, VerifiedHead, LedgerCheckpoint};
 
 /// The only network accepted until privacy, compliance and security gates are satisfied.
 const TESTNET_PASSPHRASE: &str = "Test SDF Network ; September 2015";
@@ -249,6 +250,44 @@ async fn public_transaction(
 }
 
 
+/// Public metadata-only view of the last operator-enabled observer checkpoint.
+/// This says nothing about a user payment, note privacy or provider payout.
+async fn observer_head(
+    State(state):State<Arc<AppState>>,
+)->Result<Json<LedgerCheckpoint>,StatusCode>{
+    let pool=state.db.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    ledger::last_head(pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?
+        .map(Json).ok_or(StatusCode::NOT_FOUND)
+}
+
+/// Must be enabled explicitly with STEALTHBRIDGE_ENABLE_LEDGER_OBSERVER=true.
+/// Run one designated observer per environment to avoid redundant RPC polling.
+pub async fn run_ledger_observer(state:AppState) {
+    let Some(pool)=state.db.clone() else {
+        warn!("Ledger observer requested but PostgreSQL is not configured");
+        return;
+    };
+    let mut interval=tokio::time::interval(Duration::from_secs(15));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        match state.network().await {
+            Ok(status)=>{
+                let head=VerifiedHead{
+                    passphrase:status.passphrase,
+                    ledger_sequence:status.ledger_sequence,
+                    ledger_hash:status.ledger_hash,
+                    ledger_closed_at_unix:status.ledger_closed_at_unix,
+                };
+                if let Err(error)=ledger::record_head(&pool,&head).await {
+                    warn!(error=?error,"Ledger checkpoint rejected or storage unavailable");
+                }
+            }
+            Err(_)=>warn!("Stellar Testnet observer could not verify upstream RPC"),
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct Readiness {
     status: &'static str,
@@ -288,6 +327,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health",get(health))
         .route("/ready",get(readiness))
         .route("/v1/network",get(network))
+        .route("/v1/observer",get(observer_head))
         .route("/v1/capabilities",get(capabilities))
         .route("/v1/corridors",get(corridors))
         .route("/v1/corridors/page",get(corridor_page))

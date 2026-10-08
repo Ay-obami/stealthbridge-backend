@@ -22,6 +22,18 @@ paths:
       responses:
         "200": {description: Both external read dependencies available}
         "503": {description: One or more dependencies unavailable}
+  /v1/observer:
+    get:
+      operationId: observerHead
+      summary: Last persisted, opt-in Stellar Testnet ledger checkpoint
+      responses:
+        "200":
+          description: Last observed public ledger metadata (not necessarily fresh)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/LedgerCheckpoint"}
+        "404": {description: No observer has recorded a verified ledger yet}
+        "503": {description: Database not configured or unavailable}
   /v1/network:
     get:
       operationId: network
@@ -130,6 +142,14 @@ components:
         confidential_token_verified: {type: boolean}
         private_payments_verified: {type: boolean}
         fiat_payouts_enabled: {type: boolean}
+    LedgerCheckpoint:
+      type: object
+      required: [ledger_sequence, ledger_hash, ledger_closed_at_unix, source]
+      properties:
+        ledger_sequence: {type: integer, minimum: 1}
+        ledger_hash: {type: string, pattern: "^[a-f0-9]{64}$"}
+        ledger_closed_at_unix: {type: string}
+        source: {type: string, const: stellar-rpc}
     NetworkStatus:
       type: object
       required: [network, passphrase, protocol_version, ledger_sequence, ledger_closed_at_unix, ledger_hash, source]

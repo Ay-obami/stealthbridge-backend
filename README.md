@@ -54,3 +54,11 @@ See [service readiness and exact asset value notes](docs/ENGINEERING-FOUNDATIONS
 \`GET /v1/corridors/page?limit=25&after=<UUID>\` returns \`{items, next_cursor}\` from **real enabled operator records** in PostgreSQL. Limits range 1–100, default 25; malformed UUID or out-of-range count returns 400. The query fetches one extra row to determine whether a cursor should be returned, so the service never reads the full table to produce a page. Stable UUID ordering avoids OFFSET scans at larger tables. A missing database returns 503, an empty configured database gives an empty page with null cursor, and no partner/FX details are synthesized.
 
 Page boundaries are not a long-running database snapshot: concurrent operator enable/disable changes can affect later pages. Cursors must be treated as opaque pagination tokens; a future authenticated and signed cursor scheme will be needed if customer-specific filters appear. \`/v1/corridors\` is retained for backwards compatibility with existing read-only clients; new integrations should use the bounded endpoint.
+
+## Opt-in durable Stellar observer
+
+Set \`STEALTHBRIDGE_ENABLE_LEDGER_OBSERVER=true\` **only** on a designated backend worker with a real PostgreSQL database. This starts a 15-second read-only Stellar Testnet ledger-head poller; each response must contain the exact Testnet passphrase, positive ledger sequence, a 64-character hexadecimal ledger hash and a valid close-time. A transactionally monotonic cursor is persisted in \`stellar_ledger_observer\`. A same-sequence hash conflict is rejected and flagged; stale responses cannot rewind the cursor. **No transaction XDR, wallet identity, customer or payment data is stored.**
+
+\`GET /v1/observer\` exposes the last persisted public ledger checkpoint; 404 means no observation has been recorded, and 503 means no database service. This record **may be stale** and is not a settlement receipt, indexer backlog, account balance or regulated payout confirmation.
+
+Operate **one designated observer per environment**; multiple replicas can safely contend on row locks but cause needless RPC load. Production worker leases, chain history backfill, event indexing, failure metrics and replay protection remain future work. The opt-in worker never signs or submits transactions.
